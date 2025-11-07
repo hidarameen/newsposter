@@ -1,4 +1,3 @@
-
 import logging
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -32,21 +31,29 @@ async def show_available_sources(callback: CallbackQuery):
     
     keyboard_buttons = []
     
-    # عرض مهام المشرف كمصادر
-    for task_id, task in admin_tasks.items():
-        source_info = ""
-        if task.source_channels:
-            source_titles = ", ".join([ch.get('title', 'قناة')[:15] for ch in task.source_channels[:2]])
-            if len(task.source_channels) > 2:
-                source_titles += f" +{len(task.source_channels) - 2}"
-            source_info = f" ({source_titles})"
+    # تحويل المهام إلى قائمة لتسهيل المعالجة
+    tasks_list = list(admin_tasks.items())
+    
+    # عرض مصدرين في كل صف
+    for i in range(0, len(tasks_list), 2):
+        row = []
         
-        keyboard_buttons.append([
-            InlineKeyboardButton(
-                text=f"📢 {task.name}{source_info}",
-                callback_data=f"view_source_{task_id}"
-            )
-        ])
+        # المصدر الأول
+        task_id1, task1 = tasks_list[i]
+        row.append(InlineKeyboardButton(
+            text=f"📢 {task1.name}",
+            callback_data=f"view_source_{task_id1}"
+        ))
+        
+        # المصدر الثاني (إن وجد)
+        if i + 1 < len(tasks_list):
+            task_id2, task2 = tasks_list[i + 1]
+            row.append(InlineKeyboardButton(
+                text=f"📢 {task2.name}",
+                callback_data=f"view_source_{task_id2}"
+            ))
+        
+        keyboard_buttons.append(row)
     
     # زر إضافة مصدر خاص
     keyboard_buttons.append([

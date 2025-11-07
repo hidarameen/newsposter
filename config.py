@@ -1,4 +1,3 @@
-
 import os
 from pathlib import Path
 
@@ -12,20 +11,21 @@ WEB_SERVER_PORT = 5000
 admin_id_str = os.getenv('ADMIN_ID', '0').strip()
 ADMIN_ID = int(admin_id_str) if admin_id_str else 0
 
-# مسار البيانات الموحد (يستخدم للـ Docker volume)
-# في Replit نستخدم المجلد الحالي بدلاً من /app
-# التأكد من استخدام مسار نسبي
+# مسار البيانات الموحد (يدعم Docker وNorthflank)
+# استخدم متغير البيئة DATA_DIR إن وجد، وإلا استخدم ./data
 data_dir_env = os.getenv('DATA_DIR', './data')
-# إذا كان المسار مطلقاً، نحوله لمسار نسبي
-if os.path.isabs(data_dir_env):
-    DATA_DIR = './data'
-else:
-    DATA_DIR = data_dir_env
 
+# إذا كان المسار مطلقاً (مثل /data)، استخدمه كما هو
+if os.path.isabs(data_dir_env):
+    DATA_DIR = data_dir_env
+else:
+    # نحوله لمسار مطلق داخل المشروع
+    DATA_DIR = os.path.abspath(data_dir_env)
+
+# إنشاء المجلدات المطلوبة
 USERS_DATA_DIR = os.path.join(DATA_DIR, 'users_data')
 ADMIN_DATA_DIR = os.path.join(DATA_DIR, 'admin_data')
 
-# إنشاء المجلدات إذا لم تكن موجودة
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(USERS_DATA_DIR, exist_ok=True)
 os.makedirs(ADMIN_DATA_DIR, exist_ok=True)
@@ -38,3 +38,7 @@ NOTIFICATIONS_CONFIG_FILE = os.path.join(ADMIN_DATA_DIR, 'notifications_config.j
 EVENT_LOGS_FILE = os.path.join(ADMIN_DATA_DIR, 'event_logs.jsonl')
 STATS_SNAPSHOT_FILE = os.path.join(ADMIN_DATA_DIR, 'stats_snapshot.json')
 WELCOME_MESSAGE_FILE = os.path.join(ADMIN_DATA_DIR, 'welcome_message.json')
+
+# فحص المسار للتأكد أثناء التشغيل (اختياري)
+print(f"📂 DATA_DIR in use: {DATA_DIR}")
+print(f"🔍 Exists: {os.path.exists(DATA_DIR)} | Contents: {os.listdir(DATA_DIR) if os.path.exists(DATA_DIR) else 'Not Found'}")

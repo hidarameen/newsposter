@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-forwarding-bot
+    restart: unless-stopped
+    
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_ID=${ADMIN_ID}
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      
+    volumes:
+      # مجلد البيانات الدائم
+      - bot_data:/app/data
+      
+    ports:
+      # للويب كونسول (اختياري)
+      - "5000:5000"
+    
+    # خيارات الموارد (اختياري)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+volumes:
+  bot_data:
+    driver: local

@@ -47,9 +47,11 @@ async def admin_panel(message: Message):
 /welcome - تعديل رسالة الترحيب
 /broadcast - إرسال إذاعة جماعية
 /min_subscribers - تحديد الحد الأدنى لعدد المشتركين
+/add_forward - إنشاء مهام توجيه سريعة
 
 📝 <b>مثال الاستخدام:</b>
 <code>/upgrade_user</code>
+<code>/add_forward أخبار -1001111111111 -> -1002222222222</code>
 """
 
     sent_message = await message.answer(text, parse_mode='HTML')
@@ -1346,6 +1348,220 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
         parse_mode='HTML'
     )
     await callback.answer()
+
+@router.message(Command("add_forward"))
+async def quick_add_forward_tasks(message: Message):
+    """إنشاء مهمة/مهام توجيه بشكل سريع"""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ ليس لديك صلاحية لهذا الأمر")
+        return
+    
+    # استخراج النص بعد الأمر
+    command_text = message.text.strip()
+    
+    # إزالة الأمر من النص
+    if command_text.startswith('/add_forward'):
+        tasks_text = command_text[len('/add_forward'):].strip()
+    else:
+        await message.answer(
+            "📝 <b>إنشاء مهام توجيه سريعة</b>\n\n"
+            "<b>الصيغة:</b>\n"
+            "<code>/add_forward task_name source_id1,source_id2 -> target_id1,target_id2</code>\n\n"
+            "<b>لإضافة عدة مهام:</b>\n"
+            "<code>/add_forward task1 source1 -> target1\n"
+            "task2 source2,source3 -> target2,target3</code>\n\n"
+            "<b>مثال:</b>\n"
+            "<code>/add_forward أخبار -1001234567890 -> -1009876543210,-1005555555555</code>\n\n"
+            "💡 يمكنك إضافة مصادر وأهداف متعددة بفصلها بفاصلة",
+            parse_mode='HTML'
+        )
+        return
+    
+    if not tasks_text:
+        await message.answer(
+            "❌ <b>لم يتم إدخال أي بيانات</b>\n\n"
+            "استخدم الصيغة:\n"
+            "<code>/add_forward task_name source_ids -> target_ids</code>",
+            parse_mode='HTML'
+        )
+        return
+    
+    from forwarding_manager import ForwardingManager
+    import parallel_forwarding_system
+    
+    fm = ForwardingManager()
+    
+    # تقسيم المهام (كل سطر مهمة منفصلة)
+    task_lines = [line.strip() for line in tasks_text.split('\n') if line.strip()]
+    
+    created_tasks = []
+    failed_tasks = []
+    
+    for line in task_lines:
+        try:
+            # تقسيم السطر إلى: اسم المهمة، مصادر -> أهداف
+            if '->' not in line:
+                failed_tasks.append({
+                    'line': line,
+                    'error': 'صيغة خاطئة: يجب استخدام -> للفصل بين المصادر والأهداف'
+                })
+                continue
+            
+            # فصل المصادر والأهداف
+            parts = line.split('->')
+            if len(parts) != 2:
+                failed_tasks.append({
+                    'line': line,
+                    'error': 'صيغة خاطئة: يجب وجود -> واحدة فقط'
+                })
+                continue
+            
+            # الجزء الأول: اسم المهمة والمصادر
+            left_part = parts[0].strip()
+            # الجزء الثاني: الأهداف
+            targets_part = parts[1].strip()
+            
+            # استخراج اسم المهمة والمصادر
+            left_tokens = left_part.split()
+            if len(left_tokens) < 2:
+                failed_tasks.append({
+                    'line': line,
+                    'error': 'صيغة خاطئة: يجب إدخال اسم المهمة ومعرف مصدر واحد على الأقل'
+                })
+                continue
+            
+            task_name = left_tokens[0]
+            sources_text = ' '.join(left_tokens[1:])
+            
+            # تحويل المصادر إلى قائمة
+            source_ids = []
+            for s in sources_text.split(','):
+                s = s.strip()
+                if s:
+                    try:
+                        source_id = int(s)
+                        source_ids.append(source_id)
+                    except ValueError:
+                        failed_tasks.append({
+                            'line': line,
+                            'error': f'معرف مصدر غير صحيح: {s}'
+                        })
+                        break
+            
+            if not source_ids:
+                failed_tasks.append({
+                    'line': line,
+                    'error': 'لم يتم تحديد مصادر صحيحة'
+                })
+                continue
+            
+            # تحويل الأهداف إلى قائمة
+            target_ids = []
+            for t in targets_part.split(','):
+                t = t.strip()
+                if t:
+                    try:
+                        target_id = int(t)
+                        target_ids.append(target_id)
+                    except ValueError:
+                        failed_tasks.append({
+                            'line': line,
+                            'error': f'معرف هدف غير صحيح: {t}'
+                        })
+                        break
+            
+            if not target_ids:
+                failed_tasks.append({
+                    'line': line,
+                    'error': 'لم يتم تحديد أهداف صحيحة'
+                })
+                continue
+            
+            # جلب معلومات القنوات من تيليجرام
+            source_channels = []
+            for source_id in source_ids:
+                try:
+                    chat = await message.bot.get_chat(source_id)
+                    source_channels.append({
+                        'id': source_id,
+                        'title': chat.title or 'Unknown',
+                        'username': chat.username
+                    })
+                except Exception as e:
+                    logger.error(f"خطأ في جلب معلومات المصدر {source_id}: {e}")
+                    failed_tasks.append({
+                        'line': line,
+                        'error': f'فشل جلب معلومات المصدر {source_id}: {str(e)}'
+                    })
+                    break
+            
+            if len(source_channels) != len(source_ids):
+                continue
+            
+            target_channels = []
+            for target_id in target_ids:
+                try:
+                    chat = await message.bot.get_chat(target_id)
+                    target_channels.append({
+                        'id': target_id,
+                        'title': chat.title or 'Unknown',
+                        'username': chat.username
+                    })
+                except Exception as e:
+                    logger.error(f"خطأ في جلب معلومات الهدف {target_id}: {e}")
+                    failed_tasks.append({
+                        'line': line,
+                        'error': f'فشل جلب معلومات الهدف {target_id}: {str(e)}'
+                    })
+                    break
+            
+            if len(target_channels) != len(target_ids):
+                continue
+            
+            # إنشاء المهمة
+            task_id = fm.add_task(task_name, source_channels, target_channels)
+            
+            created_tasks.append({
+                'id': task_id,
+                'name': task_name,
+                'sources': len(source_channels),
+                'targets': len(target_channels)
+            })
+            
+            logger.info(f"✅ تم إنشاء مهمة توجيه #{task_id}: {task_name}")
+            
+        except Exception as e:
+            logger.error(f"خطأ في معالجة السطر '{line}': {e}", exc_info=True)
+            failed_tasks.append({
+                'line': line,
+                'error': str(e)
+            })
+    
+    # إعادة تحميل النظام المتوازي
+    if created_tasks and parallel_forwarding_system.parallel_system:
+        await parallel_forwarding_system.parallel_system.reload_tasks()
+        logger.info("🔄 تم إعادة تحميل النظام المتوازي بعد إضافة المهام")
+    
+    # إنشاء تقرير النتائج
+    report = "📊 <b>نتائج إنشاء المهام</b>\n\n"
+    
+    if created_tasks:
+        report += f"✅ <b>تم إنشاء {len(created_tasks)} مهمة:</b>\n\n"
+        for task in created_tasks:
+            report += f"🆔 #{task['id']} - {task['name']}\n"
+            report += f"   📥 المصادر: {task['sources']}\n"
+            report += f"   📤 الأهداف: {task['targets']}\n\n"
+    
+    if failed_tasks:
+        report += f"\n❌ <b>فشل {len(failed_tasks)} مهمة:</b>\n\n"
+        for i, failed in enumerate(failed_tasks, 1):
+            report += f"{i}. <code>{failed['line'][:50]}...</code>\n"
+            report += f"   السبب: {failed['error']}\n\n"
+    
+    if not created_tasks and not failed_tasks:
+        report = "❌ لم يتم إنشاء أي مهام"
+    
+    await message.answer(report, parse_mode='HTML')
 
 @router.message(Command("min_subscribers"))
 async def min_subscribers_settings(message: Message):
